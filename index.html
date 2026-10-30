@@ -106,42 +106,43 @@
     </div>
     
     <script>
-        // Supabaseの初期設定
+        // Supabase設定
         const SUPABASE_URL = 'https://ezzdrlabafohusalgiuj.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6emRybGFiYWZvaHVzYWxnaXVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNzQ4NjksImV4cCI6MjEwODk1MDg2OX0.ok4jUenIjWMTIDL_6a4wH2Hh8rwKhIeLYNgHZq2jLRA';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        // 状態管理（cartのみ端末ローカルで保持）
-        let sharedState = {
-            products: [],
-            logs: []
-        };
+        let sharedState = { products: [], logs: [] };
         let localCart = [];
 
         function escapeHTML(str) {
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        // Supabaseから共有データをロード
+        // Supabaseからデータ取得（エラーが起きても画面描画を止めるのを防ぐ）
         async function loadState() {
             try {
                 const { data, error } = await supabase
                     .from('shared_store')
                     .select('data')
                     .eq('id', 'jyuuken_data')
-                    .single();
+                    .maybeSingle();
                 
-                if (error) throw error;
-                if (data && data.data) {
+                if (error) {
+                    console.error('Supabase接続エラー:', error);
+                } else if (data && data.data) {
                     sharedState = data.data;
-                    updateUI();
+                } else {
+                    // 初回アクセス等でデータが未保存の場合は新規保存
+                    await saveState();
                 }
             } catch (err) {
-                console.error('データ取得失敗:', err);
+                console.error('データ読み込み例外:', err);
+            } finally {
+                // 通信の成否に関わらず必ず画面をレンダリングする
+                updateUI();
             }
         }
 
-        // Supabaseに共有データを保存
         async function saveState() {
             try {
                 const { error } = await supabase
@@ -151,7 +152,6 @@
                 if (error) throw error;
             } catch (err) {
                 console.error('データ保存失敗:', err);
-                alert('クラウドへのデータ同期に失敗しました。通信環境を確認してください。');
             }
         }
 
@@ -165,8 +165,8 @@
             const listEl = document.getElementById('product-list');
             listEl.innerHTML = '';
             
-            if (sharedState.products.length === 0) {
-                listEl.innerHTML = '<p class="text-muted">商品が未登録です。</p>';
+            if (!sharedState.products || sharedState.products.length === 0) {
+                listEl.innerHTML = '<p class="text-muted">商品が未登録です。「商品登録」タブから追加してください。</p>';
                 return;
             }
 
@@ -224,7 +224,7 @@
             const clearButton = document.getElementById('clear-logs-button');
             logListEl.innerHTML = '';
 
-            if (sharedState.logs.length === 0) {
+            if (!sharedState.logs || sharedState.logs.length === 0) {
                 logListEl.innerHTML = '<p class="text-muted">過去の会計履歴はありません。</p>';
                 clearButton.disabled = true;
                 return;
@@ -263,6 +263,8 @@
             const listEl = document.getElementById('registered-products');
             listEl.innerHTML = '';
             
+            if (!sharedState.products) return;
+
             sharedState.products.forEach(p => {
                 const li = document.createElement('li');
                 li.className = 'list-group-item d-flex justify-content-between align-items-center';
@@ -291,6 +293,7 @@
 
         async function addProduct(name, price) {
             const newProduct = { id: Date.now(), name: name, price: price };
+            if (!sharedState.products) sharedState.products = [];
             sharedState.products.push(newProduct);
             updateUI();
             await saveState();
@@ -308,10 +311,11 @@
         async function completeSale() {
             if (localCart.length === 0) return;
 
-            // 会計前に最新データを再取得（ログIDの競合を防ぐ）
             await loadState();
 
             const { totalAmount, totalItems } = calculateTotal(localCart);
+            if (!sharedState.logs) sharedState.logs = [];
+
             const newLog = {
                 id: sharedState.logs.length + 1,
                 timestamp: new Date().toLocaleString('ja-JP'),
@@ -325,7 +329,7 @@
             
             updateUI();
             await saveState();
-            alert(`合計金額 ${totalAmount.toLocaleString()}円で会計を完了し、共有履歴に記録しました。`);
+            alert(`合計金額 ${totalAmount.toLocaleString()}円で会計を完了しました。`);
         }
         
         async function deleteLog(id) {
@@ -337,7 +341,7 @@
         }
         
         async function clearAllLogs() {
-            if (sharedState.logs.length === 0) return;
+            if (!sharedState.logs || sharedState.logs.length === 0) return;
             if (confirm('全ての会計履歴を完全に削除してもよろしいですか？')) {
                 sharedState.logs = [];
                 updateUI();
@@ -356,13 +360,13 @@
             document.getElementById(screenId).style.display = 'block';
             document.querySelectorAll('.taskbar button').forEach(button => button.classList.remove('active'));
             clickedButton.classList.add('active');
-            
-            // 画面を切り替えたときに最新データを裏で同期
-            loadState();
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
+            // 初期画面を表示
             showScreen('checkout-screen', document.getElementById('nav-checkout'));
+            
+            // データを取得して表示
             await loadState();
 
             document.getElementById('register-form').onsubmit = async (e) => {
