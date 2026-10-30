@@ -106,10 +106,28 @@
     </div>
     
     <script>
-        // Supabase設定（変数名を supabaseClient に変更）
+        // --- 1. 画面切り替え関数（最上部でグローバル登録） ---
+        window.showScreen = function(screenId, clickedButton) {
+            document.querySelectorAll('.screen').forEach(screen => screen.style.display = 'none');
+            const targetScreen = document.getElementById(screenId);
+            if (targetScreen) targetScreen.style.display = 'block';
+
+            document.querySelectorAll('.taskbar button').forEach(button => button.classList.remove('active'));
+            if (clickedButton) clickedButton.classList.add('active');
+            
+            if (typeof window.loadState === 'function') {
+                window.loadState();
+            }
+        };
+
+        // --- 2. Supabase設定 ---
         const SUPABASE_URL = 'https://ezzdrlabafohusalgiuj.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6emRybGFiYWZvaHVzYWxnaXVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNzQ4NjksImV4cCI6MjEwODk1MDg2OX0.ok4jUenIjWMTIDL_6a4wH2Hh8rwKhIeLYNgHZq2jLRA';
-        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        let supabaseClient = null;
+        if (window.supabase && window.supabase.createClient) {
+            supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        }
 
         let sharedState = { products: [], logs: [] };
         let localCart = [];
@@ -119,7 +137,8 @@
         }
 
         // Supabaseからデータ取得
-        async function loadState() {
+        window.loadState = async function() {
+            if (!supabaseClient) return;
             try {
                 const { data, error } = await supabaseClient
                     .from('shared_store')
@@ -139,9 +158,10 @@
             } finally {
                 updateUI();
             }
-        }
+        };
 
         async function saveState() {
+            if (!supabaseClient) return;
             try {
                 const { error } = await supabaseClient
                     .from('shared_store')
@@ -161,6 +181,7 @@
 
         function renderProductList() {
             const listEl = document.getElementById('product-list');
+            if (!listEl) return;
             listEl.innerHTML = '';
             
             if (!sharedState.products || sharedState.products.length === 0) {
@@ -186,18 +207,19 @@
             const totalAmountEl = document.getElementById('total-amount');
             const totalItemsEl = document.getElementById('total-items');
             const checkoutButton = document.getElementById('checkout-button');
+            if (!cartEl) return;
             
             cartEl.innerHTML = '';
             
             if (localCart.length === 0) {
                 cartEl.innerHTML = '<p class="text-muted">カートに商品がありません</p>';
-                totalAmountEl.textContent = '0';
-                totalItemsEl.textContent = '0';
-                checkoutButton.disabled = true;
+                if (totalAmountEl) totalAmountEl.textContent = '0';
+                if (totalItemsEl) totalItemsEl.textContent = '0';
+                if (checkoutButton) checkoutButton.disabled = true;
                 return;
             }
 
-            checkoutButton.disabled = false;
+            if (checkoutButton) checkoutButton.disabled = false;
             localCart.forEach(item => {
                 const li = document.createElement('li');
                 li.className = 'cart-item';
@@ -213,22 +235,23 @@
             });
 
             const { totalAmount, totalItems } = calculateTotal(localCart);
-            totalAmountEl.textContent = totalAmount.toLocaleString();
-            totalItemsEl.textContent = totalItems.toLocaleString();
+            if (totalAmountEl) totalAmountEl.textContent = totalAmount.toLocaleString();
+            if (totalItemsEl) totalItemsEl.textContent = totalItems.toLocaleString();
         }
 
         function renderLog() {
             const logListEl = document.getElementById('log-list');
             const clearButton = document.getElementById('clear-logs-button');
+            if (!logListEl) return;
             logListEl.innerHTML = '';
 
             if (!sharedState.logs || sharedState.logs.length === 0) {
                 logListEl.innerHTML = '<p class="text-muted">過去の会計履歴はありません。</p>';
-                clearButton.disabled = true;
+                if (clearButton) clearButton.disabled = true;
                 return;
             }
             
-            clearButton.disabled = false;
+            if (clearButton) clearButton.disabled = false;
 
             sharedState.logs.forEach(log => {
                 const li = document.createElement('li');
@@ -259,6 +282,7 @@
         
         function renderRegisteredProducts() {
             const listEl = document.getElementById('registered-products');
+            if (!listEl) return;
             listEl.innerHTML = '';
             
             if (!sharedState.products) return;
@@ -274,5 +298,81 @@
             });
         }
 
-        function addToCart(product) {
+        window.addToCart = function(product) {
             const existingItem = localCart.find(item => item.id === product.id);
+            if (existingItem) {
+                localCart = localCart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+            } else {
+                localCart.push({ ...product, quantity: 1 });
+            }
+            renderCart();
+        };
+
+        window.changeQuantity = function(id, delta) {
+            localCart = localCart.map(item => item.id === id ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0);
+            renderCart();
+        };
+
+        async function addProduct(name, price) {
+            const newProduct = { id: Date.now(), name: name, price: price };
+            if (!sharedState.products) sharedState.products = [];
+            sharedState.products.push(newProduct);
+            updateUI();
+            await saveState();
+        }
+        
+        window.deleteProduct = async function(id) {
+            if(confirm('商品を削除しますか？')) {
+                sharedState.products = sharedState.products.filter(p => p.id !== id);
+                localCart = localCart.filter(item => item.id !== id);
+                updateUI();
+                await saveState();
+            }
+        };
+
+        async function completeSale() {
+            if (localCart.length === 0) return;
+
+            await window.loadState();
+
+            const { totalAmount, totalItems } = calculateTotal(localCart);
+            if (!sharedState.logs) sharedState.logs = [];
+
+            const newLog = {
+                id: sharedState.logs.length + 1,
+                timestamp: new Date().toLocaleString('ja-JP'),
+                items: localCart.map(item => ({...item})),
+                totalAmount: totalAmount,
+                totalItems: totalItems,
+            };
+
+            sharedState.logs.unshift(newLog);
+            localCart = [];
+            
+            updateUI();
+            await saveState();
+            alert(`合計金額 ${totalAmount.toLocaleString()}円で会計を完了しました。`);
+        }
+        
+        window.deleteLog = async function(id) {
+             if (confirm(`ログ No.${id} を削除してもよろしいですか？`)) {
+                sharedState.logs = sharedState.logs.filter(log => log.id !== id);
+                updateUI();
+                await saveState();
+            }
+        };
+        
+        async function clearAllLogs() {
+            if (!sharedState.logs || sharedState.logs.length === 0) return;
+            if (confirm('全ての会計履歴を完全に削除してもよろしいですか？')) {
+                sharedState.logs = [];
+                updateUI();
+                await saveState();
+            }
+        }
+
+        function updateUI() {
+            renderProductList();
+            renderCart();
+            renderLog();
+        }
