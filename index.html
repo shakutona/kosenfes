@@ -106,10 +106,10 @@
     </div>
     
     <script>
-        // Supabase設定
+        // Supabase設定（変数名を supabaseClient に変更）
         const SUPABASE_URL = 'https://ezzdrlabafohusalgiuj.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6emRybGFiYWZvaHVzYWxnaXVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNzQ4NjksImV4cCI6MjEwODk1MDg2OX0.ok4jUenIjWMTIDL_6a4wH2Hh8rwKhIeLYNgHZq2jLRA';
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let sharedState = { products: [], logs: [] };
         let localCart = [];
@@ -118,10 +118,10 @@
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        // Supabaseからデータ取得（エラーが起きても画面描画を止めるのを防ぐ）
+        // Supabaseからデータ取得
         async function loadState() {
             try {
-                const { data, error } = await supabase
+                const { data, error } = await supabaseClient
                     .from('shared_store')
                     .select('data')
                     .eq('id', 'jyuuken_data')
@@ -132,20 +132,18 @@
                 } else if (data && data.data) {
                     sharedState = data.data;
                 } else {
-                    // 初回アクセス等でデータが未保存の場合は新規保存
                     await saveState();
                 }
             } catch (err) {
                 console.error('データ読み込み例外:', err);
             } finally {
-                // 通信の成否に関わらず必ず画面をレンダリングする
                 updateUI();
             }
         }
 
         async function saveState() {
             try {
-                const { error } = await supabase
+                const { error } = await supabaseClient
                     .from('shared_store')
                     .upsert({ id: 'jyuuken_data', data: sharedState });
 
@@ -249,7 +247,7 @@
                     <ul style="list-style: none; padding-left: 15px; font-size: 0.9em;">
                         ${log.items.map(item => `
                             <li class="d-flex justify-content-between">
-                                <span>${escapeHTML(item.name)} × ${item.quantity}</span>
+                                <span>${escapeHTML(item.name)} ×${item.quantity}</span>
                                 <span>${(item.price * item.quantity).toLocaleString()}円</span>
                             </li>
                         `).join('')}
@@ -278,111 +276,3 @@
 
         function addToCart(product) {
             const existingItem = localCart.find(item => item.id === product.id);
-            if (existingItem) {
-                localCart = localCart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
-            } else {
-                localCart.push({ ...product, quantity: 1 });
-            }
-            renderCart();
-        }
-
-        function changeQuantity(id, delta) {
-            localCart = localCart.map(item => item.id === id ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0);
-            renderCart();
-        }
-
-        async function addProduct(name, price) {
-            const newProduct = { id: Date.now(), name: name, price: price };
-            if (!sharedState.products) sharedState.products = [];
-            sharedState.products.push(newProduct);
-            updateUI();
-            await saveState();
-        }
-        
-        async function deleteProduct(id) {
-            if(confirm('商品を削除しますか？')) {
-                sharedState.products = sharedState.products.filter(p => p.id !== id);
-                localCart = localCart.filter(item => item.id !== id);
-                updateUI();
-                await saveState();
-            }
-        }
-
-        async function completeSale() {
-            if (localCart.length === 0) return;
-
-            await loadState();
-
-            const { totalAmount, totalItems } = calculateTotal(localCart);
-            if (!sharedState.logs) sharedState.logs = [];
-
-            const newLog = {
-                id: sharedState.logs.length + 1,
-                timestamp: new Date().toLocaleString('ja-JP'),
-                items: localCart.map(item => ({...item})),
-                totalAmount: totalAmount,
-                totalItems: totalItems,
-            };
-
-            sharedState.logs.unshift(newLog);
-            localCart = [];
-            
-            updateUI();
-            await saveState();
-            alert(`合計金額 ${totalAmount.toLocaleString()}円で会計を完了しました。`);
-        }
-        
-        async function deleteLog(id) {
-             if (confirm(`ログ No.${id} を削除してもよろしいですか？`)) {
-                sharedState.logs = sharedState.logs.filter(log => log.id !== id);
-                updateUI();
-                await saveState();
-            }
-        }
-        
-        async function clearAllLogs() {
-            if (!sharedState.logs || sharedState.logs.length === 0) return;
-            if (confirm('全ての会計履歴を完全に削除してもよろしいですか？')) {
-                sharedState.logs = [];
-                updateUI();
-                await saveState();
-            }
-        }
-
-        function updateUI() {
-            renderProductList();
-            renderCart();
-            renderLog();
-        }
-
-        function showScreen(screenId, clickedButton) {
-            document.querySelectorAll('.screen').forEach(screen => screen.style.display = 'none');
-            document.getElementById(screenId).style.display = 'block';
-            document.querySelectorAll('.taskbar button').forEach(button => button.classList.remove('active'));
-            clickedButton.classList.add('active');
-        }
-
-        document.addEventListener('DOMContentLoaded', async () => {
-            // 初期画面を表示
-            showScreen('checkout-screen', document.getElementById('nav-checkout'));
-            
-            // データを取得して表示
-            await loadState();
-
-            document.getElementById('register-form').onsubmit = async (e) => {
-                e.preventDefault();
-                const name = document.getElementById('product-name').value.trim();
-                const price = parseInt(document.getElementById('product-price').value, 10);
-                if (name && price > 0) {
-                    await addProduct(name, price);
-                    document.getElementById('product-name').value = '';
-                    document.getElementById('product-price').value = '';
-                }
-            };
-            
-            document.getElementById('checkout-button').onclick = completeSale;
-            document.getElementById('clear-logs-button').onclick = clearAllLogs;
-        });
-    </script>
-</body>
-</html>
