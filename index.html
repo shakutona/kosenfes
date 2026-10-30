@@ -40,7 +40,7 @@
         <div id="checkout-screen" class="screen screen-content">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h2>会計レジ</h2>
-                <button class="btn btn-sm btn-outline-primary" onclick="loadState()"><i class="bi bi-arrow-clockwise"></i> 最新データ取得</button>
+                <button id="btn-refresh" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-clockwise"></i> 最新データ取得</button>
             </div>
             <div class="row g-4">
                 <div class="col-12 col-md-6 border-end-md">
@@ -90,15 +90,15 @@
         </div>
 
         <div class="taskbar">
-            <button id="nav-checkout" class="active" onclick="showScreen('checkout-screen', this)">
+            <button id="nav-checkout" class="active">
                 <span class="taskbar-icon"><i class="bi bi-cash-coin"></i></span>
                 <span class="taskbar-label">レジ会計</span>
             </button>
-            <button id="nav-register" onclick="showScreen('register-screen', this)">
+            <button id="nav-register">
                 <span class="taskbar-icon"><i class="bi bi-tags"></i></span>
                 <span class="taskbar-label">商品登録</span>
             </button>
-            <button id="nav-log" onclick="showScreen('log-screen', this)">
+            <button id="nav-log">
                 <span class="taskbar-icon"><i class="bi bi-journal-text"></i></span>
                 <span class="taskbar-label">購入履歴</span>
             </button>
@@ -106,38 +106,36 @@
     </div>
     
     <script>
-        // --- 1. 画面切り替え関数（最上部でグローバル登録） ---
-        window.showScreen = function(screenId, clickedButton) {
-            document.querySelectorAll('.screen').forEach(screen => screen.style.display = 'none');
-            const targetScreen = document.getElementById(screenId);
-            if (targetScreen) targetScreen.style.display = 'block';
-
-            document.querySelectorAll('.taskbar button').forEach(button => button.classList.remove('active'));
-            if (clickedButton) clickedButton.classList.add('active');
-            
-            if (typeof window.loadState === 'function') {
-                window.loadState();
-            }
-        };
-
-        // --- 2. Supabase設定 ---
+        // Supabase設定
         const SUPABASE_URL = 'https://ezzdrlabafohusalgiuj.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV6emRybGFiYWZvaHVzYWxnaXVqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNzQ4NjksImV4cCI6MjEwODk1MDg2OX0.ok4jUenIjWMTIDL_6a4wH2Hh8rwKhIeLYNgHZq2jLRA';
         
         let supabaseClient = null;
-        if (window.supabase && window.supabase.createClient) {
+        if (window.supabase && typeof window.supabase.createClient === 'function') {
             supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         }
 
         let sharedState = { products: [], logs: [] };
         let localCart = [];
 
+        // 画面切り替え関数
+        function showScreen(screenId, clickedButton) {
+            document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+            const target = document.getElementById(screenId);
+            if (target) target.style.display = 'block';
+
+            document.querySelectorAll('.taskbar button').forEach(b => b.classList.remove('active'));
+            if (clickedButton) clickedButton.classList.add('active');
+            
+            loadState();
+        }
+
         function escapeHTML(str) {
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
         // Supabaseからデータ取得
-        window.loadState = async function() {
+        async function loadState() {
             if (!supabaseClient) return;
             try {
                 const { data, error } = await supabaseClient
@@ -158,7 +156,7 @@
             } finally {
                 updateUI();
             }
-        };
+        }
 
         async function saveState() {
             if (!supabaseClient) return;
@@ -270,7 +268,7 @@
                     <ul style="list-style: none; padding-left: 15px; font-size: 0.9em;">
                         ${log.items.map(item => `
                             <li class="d-flex justify-content-between">
-                                <span>${escapeHTML(item.name)} ×${item.quantity}</span>
+                                <span>${escapeHTML(item.name)} × ${item.quantity}</span>
                                 <span>${(item.price * item.quantity).toLocaleString()}円</span>
                             </li>
                         `).join('')}
@@ -298,7 +296,7 @@
             });
         }
 
-        window.addToCart = function(product) {
+        function addToCart(product) {
             const existingItem = localCart.find(item => item.id === product.id);
             if (existingItem) {
                 localCart = localCart.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
@@ -306,12 +304,12 @@
                 localCart.push({ ...product, quantity: 1 });
             }
             renderCart();
-        };
+        }
 
-        window.changeQuantity = function(id, delta) {
+        function changeQuantity(id, delta) {
             localCart = localCart.map(item => item.id === id ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0);
             renderCart();
-        };
+        }
 
         async function addProduct(name, price) {
             const newProduct = { id: Date.now(), name: name, price: price };
@@ -321,19 +319,19 @@
             await saveState();
         }
         
-        window.deleteProduct = async function(id) {
+        async function deleteProduct(id) {
             if(confirm('商品を削除しますか？')) {
                 sharedState.products = sharedState.products.filter(p => p.id !== id);
                 localCart = localCart.filter(item => item.id !== id);
                 updateUI();
                 await saveState();
             }
-        };
+        }
 
         async function completeSale() {
             if (localCart.length === 0) return;
 
-            await window.loadState();
+            await loadState();
 
             const { totalAmount, totalItems } = calculateTotal(localCart);
             if (!sharedState.logs) sharedState.logs = [];
@@ -354,13 +352,13 @@
             alert(`合計金額 ${totalAmount.toLocaleString()}円で会計を完了しました。`);
         }
         
-        window.deleteLog = async function(id) {
+        async function deleteLog(id) {
              if (confirm(`ログ No.${id} を削除してもよろしいですか？`)) {
                 sharedState.logs = sharedState.logs.filter(log => log.id !== id);
                 updateUI();
                 await saveState();
             }
-        };
+        }
         
         async function clearAllLogs() {
             if (!sharedState.logs || sharedState.logs.length === 0) return;
@@ -376,3 +374,42 @@
             renderCart();
             renderLog();
         }
+
+        // 初期設定とイベントリスナーのアタッチ
+        document.addEventListener('DOMContentLoaded', async () => {
+            const navCheckout = document.getElementById('nav-checkout');
+            const navRegister = document.getElementById('nav-register');
+            const navLog = document.getElementById('nav-log');
+            const btnRefresh = document.getElementById('btn-refresh');
+
+            if (navCheckout) navCheckout.onclick = function() { showScreen('checkout-screen', this); };
+            if (navRegister) navRegister.onclick = function() { showScreen('register-screen', this); };
+            if (navLog) navLog.onclick = function() { showScreen('log-screen', this); };
+            if (btnRefresh) btnRefresh.onclick = function() { loadState(); };
+
+            showScreen('checkout-screen', navCheckout);
+            await loadState();
+
+            const regForm = document.getElementById('register-form');
+            if (regForm) {
+                regForm.onsubmit = async (e) => {
+                    e.preventDefault();
+                    const name = document.getElementById('product-name').value.trim();
+                    const price = parseInt(document.getElementById('product-price').value, 10);
+                    if (name && price > 0) {
+                        await addProduct(name, price);
+                        document.getElementById('product-name').value = '';
+                        document.getElementById('product-price').value = '';
+                    }
+                };
+            }
+            
+            const checkoutBtn = document.getElementById('checkout-button');
+            if (checkoutBtn) checkoutBtn.onclick = completeSale;
+            
+            const clearLogsBtn = document.getElementById('clear-logs-button');
+            if (clearLogsBtn) clearLogsBtn.onclick = clearAllLogs;
+        });
+    </script>
+</body>
+</html>
