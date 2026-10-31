@@ -30,6 +30,7 @@
         .taskbar-label { font-size: 0.75rem; }
         .screen { display: none; }
         .log-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+        .log-summary-box { background-color: #e8eaf6; border-radius: 6px; padding: 15px; margin-bottom: 20px; border-left: 5px solid #3f51b5; }
     </style>
 </head>
 <body>
@@ -82,10 +83,20 @@
         </div>
         
         <div id="log-screen" class="screen screen-content">
-            <h2 class="mb-4">会計履歴ログ</h2>
-            <div class="d-flex justify-content-end mb-3">
-                <button id="clear-logs-button" class="btn btn-danger"><i class="bi bi-trash"></i> 全て削除</button>
+            <h2 class="mb-3">会計履歴ログ</h2>
+            
+            <!-- 累計合計金額表示エリア -->
+            <div class="log-summary-box shadow-sm">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <span class="text-muted fs-6">累計売上合計:</span>
+                        <h3 class="d-inline-block ms-2 mb-0 text-danger font-monospace"><strong id="total-log-amount">0</strong> 円</h3>
+                        <span class="ms-2 text-secondary fs-6">(計 <span id="total-log-items">0</span> 個)</span>
+                    </div>
+                    <button id="clear-logs-button" class="btn btn-sm btn-danger"><i class="bi bi-trash"></i> 全て削除</button>
+                </div>
             </div>
+
             <ul id="log-list" class="list-group"></ul>
         </div>
 
@@ -118,7 +129,6 @@
         let sharedState = { products: [], logs: [] };
         let localCart = [];
 
-        // 画面切り替え関数
         function showScreen(screenId, clickedButton) {
             document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
             const target = document.getElementById(screenId);
@@ -134,7 +144,6 @@
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        // Supabaseからデータ取得
         async function loadState() {
             if (!supabaseClient) return;
             try {
@@ -240,10 +249,21 @@
         function renderLog() {
             const logListEl = document.getElementById('log-list');
             const clearButton = document.getElementById('clear-logs-button');
+            const totalLogAmountEl = document.getElementById('total-log-amount');
+            const totalLogItemsEl = document.getElementById('total-log-items');
+
             if (!logListEl) return;
             logListEl.innerHTML = '';
 
-            if (!sharedState.logs || sharedState.logs.length === 0) {
+            // 累計合計金額・個数の計算
+            const logs = sharedState.logs || [];
+            const grandTotalAmount = logs.reduce((sum, log) => sum + (log.totalAmount || 0), 0);
+            const grandTotalItems = logs.reduce((sum, log) => sum + (log.totalItems || 0), 0);
+
+            if (totalLogAmountEl) totalLogAmountEl.textContent = grandTotalAmount.toLocaleString();
+            if (totalLogItemsEl) totalLogItemsEl.textContent = grandTotalItems.toLocaleString();
+
+            if (logs.length === 0) {
                 logListEl.innerHTML = '<p class="text-muted">過去の会計履歴はありません。</p>';
                 if (clearButton) clearButton.disabled = true;
                 return;
@@ -251,7 +271,7 @@
             
             if (clearButton) clearButton.disabled = false;
 
-            sharedState.logs.forEach(log => {
+            logs.forEach(log => {
                 const li = document.createElement('li');
                 li.className = 'list-group-item mb-3 rounded border shadow-sm';
                 li.style.backgroundColor = '#fdfdfd';
@@ -282,8 +302,7 @@
             const listEl = document.getElementById('registered-products');
             if (!listEl) return;
             listEl.innerHTML = '';
-            
-            if (!sharedState.products) return;
+　　　　　　　if (!sharedState.products) return;
 
             sharedState.products.forEach(p => {
                 const li = document.createElement('li');
@@ -375,7 +394,6 @@
             renderLog();
         }
 
-        // 初期設定とイベントリスナーのアタッチ
         document.addEventListener('DOMContentLoaded', async () => {
             const navCheckout = document.getElementById('nav-checkout');
             const navRegister = document.getElementById('nav-register');
